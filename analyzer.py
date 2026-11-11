@@ -133,16 +133,7 @@ def analyze_email(message: str) -> tuple[int, list[Finding]]:
         for candidate in URL_PATTERN.findall(text)
     ]
 
-    # Externe Links erkennen
-    if urls:
-        findings.append(
-            Finding(
-                "Externer Link",
-                "Die Nachricht enthält einen Link. "
-                "Prüfe die tatsächliche Domain vor dem Öffnen.",
-                10,
-            )
-        )
+    
 
     # IP-Adressen in Links erkennen
     for url in urls:
