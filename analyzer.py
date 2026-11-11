@@ -1,6 +1,8 @@
 
-"""Simple, explainable phishing indicators.
-This is not a phishing verdict or an AI model.
+"""MailScout – Explainable Email Security Analyzer.
+
+Rule-based detection of phishing indicators.
+This is not an AI model or a definitive phishing verdict.
 """
 
 from dataclasses import dataclass
@@ -9,6 +11,10 @@ import re
 from urllib.parse import urlsplit
 
 
+# ------------------------------------------
+# 1. Datenstruktur für Sicherheitswarnungen
+# ------------------------------------------
+
 @dataclass(frozen=True)
 class Finding:
     label: str
@@ -16,7 +22,10 @@ class Finding:
     points: int
 
 
-# Regelbasierte Erkennung verdächtiger Formulierungen
+# ------------------------------------------
+# 2. Regeln für verdächtige Formulierungen
+# ------------------------------------------
+
 RULES = (
     (
         r"\b(?:sofort|unverzüglich|innerhalb von 24 stunden|urgent|immediately)\b",
@@ -39,21 +48,64 @@ RULES = (
 )
 
 
-# Erkennt HTTP- und HTTPS-Links im Text
+# ------------------------------------------
+# 3. URL-Erkennung
+# ------------------------------------------
+
 URL_PATTERN = re.compile(
     r"https?://[^\s<>\"']+",
     re.IGNORECASE
 )
 
 
+# ------------------------------------------
+# 4. IP-Adressen erkennen
+# ------------------------------------------
+
 def is_ip_address(hostname: str) -> bool:
     """Prüft, ob ein Hostname eine IPv4- oder IPv6-Adresse ist."""
+
     try:
         ipaddress.ip_address(hostname)
         return True
     except ValueError:
         return False
 
+
+# ------------------------------------------
+# 5. Verdächtige Subdomains erkennen
+# ------------------------------------------
+
+def has_suspicious_subdomain(hostname: str) -> bool:
+    """Erkennt bekannte Unternehmensdomains innerhalb fremder Hostnamen."""
+
+    trusted_domains = (
+        "amazon.de",
+        "paypal.com",
+        "google.com",
+    )
+
+    hostname = hostname.lower().rstrip(".")
+
+    for domain in trusted_domains:
+
+        # Echte Domains und ihre Subdomains nicht markieren
+        if hostname == domain or hostname.endswith("." + domain):
+            continue
+
+        # Bekannte Domain vor einer fremden Domain erkennen
+        if hostname.startswith(domain + "."):
+            return True
+
+        if "." + domain + "." in hostname:
+            return True
+
+    return False
+
+
+# ------------------------------------------
+# 6. Hauptfunktion: E-Mail analysieren
+# ------------------------------------------
 
 def analyze_email(message: str) -> tuple[int, list[Finding]]:
     """Analysiert E-Mails anhand erklärbarer Sicherheitsregeln."""
@@ -68,44 +120,61 @@ def analyze_email(message: str) -> tuple[int, list[Finding]]:
 
     findings: list[Finding] = []
 
-    # 1. Verdächtige Formulierungen erkennen
+    # Verdächtige Formulierungen erkennen
     for pattern, label, explanation, points in RULES:
         if re.search(pattern, text, flags=re.IGNORECASE):
             findings.append(
                 Finding(label, explanation, points)
             )
 
-    # 2. URLs aus der E-Mail extrahieren
+    # URLs aus dem Text extrahieren
     urls = [
         candidate.rstrip(".,;!?)")
         for candidate in URL_PATTERN.findall(text)
     ]
 
+    # Externe Links erkennen
     if urls:
         findings.append(
             Finding(
                 "Externer Link",
-                "Die Nachricht enthält einen Link. Prüfe die tatsächliche Domain vor dem Öffnen.",
+                "Die Nachricht enthält einen Link. "
+                "Prüfe die tatsächliche Domain vor dem Öffnen.",
                 10,
             )
         )
 
-    # 3. Einzelne URLs untersuchen
+    # IP-Adressen in Links erkennen
     for url in urls:
         hostname = (urlsplit(url).hostname or "").lower()
 
-        # Neue Funktion: IP-Adresse als Linkziel erkennen
         if is_ip_address(hostname):
             findings.append(
                 Finding(
                     "IP-Adresse im Link",
-                    "Der Link verwendet eine direkte IP-Adresse statt eines Domainnamens.",
+                    "Der Link verwendet eine direkte IP-Adresse "
+                    "statt eines Domainnamens.",
                     25,
                 )
             )
             break
 
-    # 4. Punycode-Domains erkennen
+    # Verdächtige Marken-Subdomains erkennen
+    for url in urls:
+        hostname = (urlsplit(url).hostname or "").lower()
+
+        if has_suspicious_subdomain(hostname):
+            findings.append(
+                Finding(
+                    "Verdächtige Subdomain",
+                    "Eine bekannte Unternehmensdomain erscheint "
+                    "innerhalb eines fremden Domainnamens.",
+                    25,
+                )
+            )
+            break
+
+    # Punycode-Domains erkennen
     for url in urls:
         hostname = (urlsplit(url).hostname or "").lower()
 
@@ -113,23 +182,25 @@ def analyze_email(message: str) -> tuple[int, list[Finding]]:
             findings.append(
                 Finding(
                     "Punycode-Domain",
-                    "Die Domain verwendet Punycode; eine Verwechslungsgefahr ist möglich.",
+                    "Die Domain verwendet Punycode; "
+                    "eine Verwechslungsgefahr ist möglich.",
                     25,
                 )
             )
             break
 
-    # 5. Ungewöhnlich viele Links erkennen
+    # Ungewöhnlich viele Links erkennen
     if len(urls) >= 3:
         findings.append(
             Finding(
                 "Viele Links",
-                "Die Nachricht enthält mehrere Links; prüfe die Ziele sorgfältig.",
+                "Die Nachricht enthält mehrere Links; "
+                "prüfe die Ziele sorgfältig.",
                 10,
             )
         )
 
-    # 6. Gesamtscore berechnen
+    # Gesamtscore berechnen (maximal 100 Punkte)
     score = min(
         100,
         sum(finding.points for finding in findings)
@@ -137,6 +208,10 @@ def analyze_email(message: str) -> tuple[int, list[Finding]]:
 
     return score, findings
 
+
+# ------------------------------------------
+# 7. Risikostufe bestimmen
+# ------------------------------------------
 
 def risk_level(score: int) -> str:
     """Ordnet den heuristischen Score einer Risikostufe zu."""
