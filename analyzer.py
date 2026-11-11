@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import re
+import ipaddress
 from urllib.parse import urlsplit
 
 
@@ -26,6 +27,14 @@ URL_PATTERN = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 
 
 def analyze_email(message: str) -> tuple[int, list[Finding]]:
+    
+def is_ip_address(hostname: str) -> bool:
+    try:
+        ipaddress.ip_address(hostname)
+        return True
+    except ValueError:
+        return False
+
     """Return a heuristic 0-100 score and human-readable risk indicators."""
     if not isinstance(message, str):
         raise TypeError("message muss eine Zeichenkette sein")
